@@ -390,22 +390,26 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
         })
         return blocks
 
-    # --- Call Insights section ---
-    if insights:
+    # Display each competitor with both call insights and market intel together
+    for competitor in active_competitors:
+        gong_insights = grouped_gong.get(competitor, [])
+        intel_bullets = market_intel.get(competitor, [])
+
+        # Competitor header
         blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": ":headphones: *Call Insights*"
+                "text": f"*{competitor}*"
             }
         })
 
-        for insight in insights:
-            competitor = insight.get("competitor", "Unknown")
+        # Gong call insights
+        for insight in gong_insights:
             sentiment = insight.get("sentiment", "Neutral")
             emoji = sentiment_emoji.get(sentiment, ":white_circle:")
 
-            insight_text = f"{emoji} *{competitor}* — _{insight.get('category', 'General')}_\n\n"
+            insight_text = f"{emoji} _{insight.get('category', 'General')}_\n\n"
             insight_text += f"{insight.get('summary', '')}\n\n"
 
             if insight.get("quote"):
@@ -431,24 +435,9 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
                 }
             })
 
-    # --- Market Research Insights section ---
-    all_intel_bullets = []
-    for comp in active_competitors:
-        for bullet_data in market_intel.get(comp, []):
-            all_intel_bullets.append((comp, bullet_data))
-
-    if all_intel_bullets:
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": ":satellite: *Market Research Insights*"
-            }
-        })
-
-        for comp, bullet_data in all_intel_bullets:
-            bullet_text = f"*{comp}* — {bullet_data.get('bullet', '')}"
+        # Market intel bullets
+        for bullet_data in intel_bullets:
+            bullet_text = f":satellite: {bullet_data.get('bullet', '')}"
             source_url = bullet_data.get("source_url")
             if source_url:
                 bullet_text += f"\n_<{source_url}|Source>_"
@@ -460,6 +449,12 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
                     "text": bullet_text
                 }
             })
+
+        blocks.append({"type": "divider"})
+
+    # Remove trailing divider
+    if blocks and blocks[-1].get("type") == "divider":
+        blocks.pop()
 
     return blocks
 
@@ -504,18 +499,20 @@ def format_digest_as_text(insights: list[dict], date_range: tuple[str, str], mar
         lines.append("No competitor intelligence found this week.")
         return "\n".join(lines)
 
-    # --- Call Insights section ---
-    if insights:
+    for competitor in active_competitors:
+        gong_insights = grouped_gong.get(competitor, [])
+        intel_bullets = market_intel.get(competitor, [])
+
         lines.append("---")
-        lines.append("*CALL INSIGHTS*")
+        lines.append(f"*{competitor}*")
         lines.append("")
 
-        for insight in insights:
-            competitor = insight.get("competitor", "Unknown")
+        # Gong call insights
+        for insight in gong_insights:
             sentiment = insight.get("sentiment", "Neutral")
             emoji = sentiment_emoji.get(sentiment, ":white_circle:")
 
-            lines.append(f"{emoji} *{competitor}* — _{insight.get('category', 'General')}_")
+            lines.append(f"{emoji} _{insight.get('category', 'General')}_")
             lines.append(f"Sentiment: {sentiment}")
             lines.append("")
             lines.append(insight.get('summary', ''))
@@ -539,19 +536,9 @@ def format_digest_as_text(insights: list[dict], date_range: tuple[str, str], mar
                 lines.append(f"_Source: {call_title} ({call_date})_")
             lines.append("")
 
-    # --- Market Research Insights section ---
-    all_intel_bullets = []
-    for comp in active_competitors:
-        for bullet_data in market_intel.get(comp, []):
-            all_intel_bullets.append((comp, bullet_data))
-
-    if all_intel_bullets:
-        lines.append("---")
-        lines.append("*MARKET RESEARCH INSIGHTS*")
-        lines.append("")
-
-        for comp, bullet_data in all_intel_bullets:
-            lines.append(f"*{comp}* — {bullet_data.get('bullet', '')}")
+        # Market intel bullets
+        for bullet_data in intel_bullets:
+            lines.append(f":satellite: {bullet_data.get('bullet', '')}")
             source_url = bullet_data.get("source_url")
             if source_url:
                 lines.append(f"_Source: {source_url}_")
