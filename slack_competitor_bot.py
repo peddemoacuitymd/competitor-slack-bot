@@ -47,6 +47,7 @@ SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN", "")  # App-Level Token for S
 # Slack configuration
 APPROVER_USER_IDS = [uid.strip() for uid in os.environ.get("APPROVER_USER_IDS", "U072X3EDC7Q").split(",")]
 TARGET_CHANNEL = "#competitors"  # Channel to post approved digests
+APPROVAL_CHANNEL = os.environ.get("APPROVAL_CHANNEL", "#competitor-digest")  # Channel for review/approval
 
 # Schedule configuration (default: Monday 9:00 AM)
 SCHEDULE_DAY = "mon"
@@ -658,24 +659,18 @@ def generate_and_send_digest():
         logger.error(f"Market intel collection failed: {e}")
         market_intel = {}
 
-    # Format and send DM for approval
+    # Format and send to approval channel
     blocks, digest_id = format_approval_message(insights, (from_date, to_date), market_intel)
-    
-    try:
-        # Open a DM channel with the approver
-        for approver_id in APPROVER_USER_IDS:
-            dm_response = app.client.conversations_open(users=[approver_id])
-            dm_channel = dm_response["channel"]["id"]
 
-            # Send the digest for approval
-            app.client.chat_postMessage(
-                channel=dm_channel,
-                text="Weekly Competitor Insights Digest - Ready for Review",
-                blocks=blocks
-            )
-        logger.info(f"Sent digest to {len(APPROVER_USER_IDS)} approver(s) for review (digest_id: {digest_id})")
+    try:
+        app.client.chat_postMessage(
+            channel=APPROVAL_CHANNEL,
+            text="Weekly Competitor Insights Digest - Ready for Review",
+            blocks=blocks
+        )
+        logger.info(f"Sent digest to {APPROVAL_CHANNEL} for review (digest_id: {digest_id})")
     except Exception as e:
-        logger.error(f"Error sending DM: {e}")
+        logger.error(f"Error sending to approval channel: {e}")
         # Clean up the pending digest on error
         pending_digests.pop(digest_id, None)
 
