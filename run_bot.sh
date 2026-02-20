@@ -10,7 +10,8 @@ cd "$(dirname "$0")"
 pkill -f "slack_competitor_bot.py" 2>/dev/null
 sleep 2
 
-# Activate venv and run
+# Load environment variables and activate venv
+set -a && source .env && set +a
 source venv/bin/activate
 nohup python slack_competitor_bot.py "$@" >> bot.log 2>&1 &
 echo "Bot started (PID: $!). Logs: tail -f bot.log"
