@@ -45,7 +45,7 @@ SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")  # Bot User OAuth Token
 SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN", "")  # App-Level Token for Socket Mode
 
 # Slack configuration
-APPROVER_USER_ID = "U072X3EDC7Q"  # Your Slack user ID
+APPROVER_USER_IDS = [uid.strip() for uid in os.environ.get("APPROVER_USER_IDS", "U072X3EDC7Q").split(",")]
 TARGET_CHANNEL = "#competitors"  # Channel to post approved digests
 
 # Schedule configuration (default: Monday 9:00 AM)
@@ -663,16 +663,17 @@ def generate_and_send_digest():
     
     try:
         # Open a DM channel with the approver
-        dm_response = app.client.conversations_open(users=[APPROVER_USER_ID])
-        dm_channel = dm_response["channel"]["id"]
-        
-        # Send the digest for approval
-        app.client.chat_postMessage(
-            channel=dm_channel,
-            text="Weekly Competitor Insights Digest - Ready for Review",
-            blocks=blocks
-        )
-        logger.info(f"Sent digest to approver for review (digest_id: {digest_id})")
+        for approver_id in APPROVER_USER_IDS:
+            dm_response = app.client.conversations_open(users=[approver_id])
+            dm_channel = dm_response["channel"]["id"]
+
+            # Send the digest for approval
+            app.client.chat_postMessage(
+                channel=dm_channel,
+                text="Weekly Competitor Insights Digest - Ready for Review",
+                blocks=blocks
+            )
+        logger.info(f"Sent digest to {len(APPROVER_USER_IDS)} approver(s) for review (digest_id: {digest_id})")
     except Exception as e:
         logger.error(f"Error sending DM: {e}")
         # Clean up the pending digest on error
@@ -1044,7 +1045,7 @@ def handle_manual_trigger(ack, command, client):
     ack()
     
     # Only allow the approver to trigger manually
-    if command["user_id"] != APPROVER_USER_ID:
+    if command["user_id"] not in APPROVER_USER_IDS:
         client.chat_postEphemeral(
             channel=command["channel_id"],
             user=command["user_id"],
@@ -1093,7 +1094,7 @@ def main():
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     logger.info("Starting Slack bot in Socket Mode...")
     logger.info(f"Target channel: {TARGET_CHANNEL}")
-    logger.info(f"Approver user ID: {APPROVER_USER_ID}")
+    logger.info(f"Approver user IDs: {APPROVER_USER_IDS}")
     
     try:
         handler.start()
