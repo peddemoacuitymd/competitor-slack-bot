@@ -706,13 +706,6 @@ def handle_approve(ack, body, client):
                         "emoji": True
                     }
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "This is our first attempt at an AI-generated competitor digest that peruses last week's gong calls for competitor mentions. Let us know what you think and if you have any suggestions to improve this!"
-                    }
-                },
                 {"type": "divider"}
             ]
 
