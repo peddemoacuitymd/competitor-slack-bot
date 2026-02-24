@@ -38,11 +38,8 @@ logger = logging.getLogger(__name__)
 GONG_ACCESS_KEY = os.environ.get("GONG_ACCESS_KEY", "")
 GONG_SECRET_KEY = os.environ.get("GONG_SECRET_KEY", "")
 
-# OpenAI API key (used for Gong transcript analysis)
+# OpenAI API key (used for Gong transcript analysis + market intel web search)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-
-# Anthropic API key (used for market intel web search)
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("CLAUDE_API_KEY", "")
 
 # Slack credentials
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")  # Bot User OAuth Token
@@ -76,9 +73,6 @@ ALL_COMPETITORS_ORDER = [
     "Alpha Sophia",
 ]
 
-# Ensure ANTHROPIC_API_KEY is available for market intel
-if ANTHROPIC_API_KEY:
-    os.environ.setdefault("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY)
 
 
 def get_date_range() -> tuple[str, str]:

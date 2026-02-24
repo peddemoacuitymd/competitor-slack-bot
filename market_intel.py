@@ -2,7 +2,7 @@
 """
 Market Intelligence Module
 
-Uses Claude API with web_search to find recent competitor updates
+Uses OpenAI Responses API with web_search to find recent competitor updates
 (pricing, features, announcements) and synthesize actionable intelligence.
 
 Tracks: Veeva Systems, Definitive Healthcare, Alpha Sophia, IQVIA, MedScout, RepSignal
@@ -14,8 +14,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta
+
+import openai
 
 logger = logging.getLogger(__name__)
 
@@ -62,17 +65,15 @@ COMPETITOR_CONTEXT = {
     },
 }
 
-MODEL = "claude-sonnet-4-6"
-
 
 def _api_call_with_retry(fn, label="API call"):
     """Call fn() with retry + backoff on rate limits."""
-    import anthropic as _anthropic
-
     for attempt in range(5):
         try:
             return fn()
-        except _anthropic.RateLimitError:
+        except (openai.RateLimitError, openai.APIStatusError) as e:
+            if hasattr(e, 'status_code') and e.status_code != 429:
+                raise
             wait = 30 * (attempt + 1)
             logger.info(f"Rate limited on {label}, waiting {wait}s...")
             time.sleep(wait)
@@ -81,7 +82,7 @@ def _api_call_with_retry(fn, label="API call"):
 
 
 def _scan_competitor(client, name: str, info: dict) -> dict:
-    """Use Claude with web_search to find recent updates for a competitor."""
+    """Use OpenAI Responses API with web_search to find recent updates."""
     today = datetime.utcnow().strftime("%Y-%m-%d")
     week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
 
@@ -109,11 +110,10 @@ def _scan_competitor(client, name: str, info: dict) -> dict:
     logger.info(f"Scanning {name} via web search...")
 
     response = _api_call_with_retry(
-        lambda: client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
-            messages=[{"role": "user", "content": prompt}],
+        lambda: client.responses.create(
+            model="gpt-4o",
+            tools=[{"type": "web_search_preview"}],
+            input=prompt,
         ),
         label=name,
     )
@@ -122,17 +122,10 @@ def _scan_competitor(client, name: str, info: dict) -> dict:
         return {"name": name, "bullets": []}
 
     # Extract text from response
-    text_parts = []
-    for block in response.content:
-        if block.type == "text":
-            text_parts.append(block.text)
-
-    raw_text = "\n".join(text_parts).strip()
+    raw_text = response.output_text.strip()
 
     # Parse JSON from response
     try:
-        # Try to extract JSON array from the response
-        import re
         json_match = re.search(r'\[.*\]', raw_text, re.DOTALL)
         if json_match:
             bullets = json.loads(json_match.group())
@@ -141,34 +134,26 @@ def _scan_competitor(client, name: str, info: dict) -> dict:
         return {"name": name, "bullets": []}
     except (json.JSONDecodeError, Exception) as e:
         logger.warning(f"Failed to parse JSON for {name}: {e}")
-        # Fall back to unstructured bullet
         if raw_text and "no significant" not in raw_text.lower():
             return {"name": name, "bullets": [{"bullet": raw_text[:500], "source_url": ""}]}
         return {"name": name, "bullets": []}
 
 
 def get_market_intel(openai_api_key: str = None) -> dict[str, list[dict]]:
-    """Main entry point: scan competitors via Claude web_search.
+    """Main entry point: scan competitors via OpenAI web_search.
 
-    The openai_api_key parameter is kept for backward compatibility with the
-    existing bot but is not used. Uses ANTHROPIC_API_KEY from environment.
+    Uses the same OpenAI API key already configured for the bot.
 
     Returns: {competitor_name: [{"bullet": "...", "source_url": "..."}]}
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        logger.error("ANTHROPIC_API_KEY not found in environment. Skipping market intel.")
+        logger.error("OPENAI_API_KEY not found. Skipping market intel.")
         return {comp: [] for comp in MARKET_INTEL_COMPETITORS}
 
-    try:
-        import anthropic
-    except ImportError:
-        logger.error("anthropic package not installed. Run: pip install anthropic")
-        return {comp: [] for comp in MARKET_INTEL_COMPETITORS}
+    client = openai.OpenAI(api_key=api_key)
 
-    client = anthropic.Anthropic(api_key=api_key)
-
-    logger.info("Starting market intelligence collection via Claude web_search...")
+    logger.info("Starting market intelligence collection via OpenAI web_search...")
     intel = {}
 
     for name in MARKET_INTEL_COMPETITORS:
