@@ -29,6 +29,7 @@ MARKET_INTEL_COMPETITORS = [
     "IQVIA",
     "MedScout",
     "RepSignal",
+    "Sorcero",
 ]
 
 # Context for each competitor to guide web search
@@ -62,6 +63,11 @@ COMPETITOR_CONTEXT = {
         "description": "AI-powered commercial intelligence for medical device companies by S2N Health — 1.2M physicians, 50K+ facilities. Natively built on Salesforce.",
         "domains": "s2nhealth.com, repsignal.com",
         "context": "RepSignal competes on Salesforce-native integration — appeals to teams already on SFDC.",
+    },
+    "Sorcero": {
+        "description": "AI-powered life sciences intelligence platform — regulatory, medical affairs, and commercial insights using NLP on scientific and clinical content.",
+        "domains": "sorcero.com",
+        "context": "Sorcero focuses on AI-driven content intelligence for life sciences; could overlap with AcuityMD on clinical and market data insights for medtech.",
     },
 }
 

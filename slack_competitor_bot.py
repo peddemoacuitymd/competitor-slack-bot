@@ -21,7 +21,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode.websocket_client import SocketModeHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from market_intel import get_market_intel, MARKET_INTEL_COMPETITORS
+from market_intel import get_market_intel
 
 # In-memory storage for pending digests (button values have 2000 char limit)
 pending_digests = {}
@@ -71,6 +71,7 @@ ALL_COMPETITORS_ORDER = [
     "MedScout",
     "RepSignal",
     "Alpha Sophia",
+    "Sorcero",
 ]
 
 
@@ -265,7 +266,7 @@ Extract 3-6 insights (only if they genuinely exist - don't force insights). Each
 
 Insight categories to focus on:
 - Pricing
-- Functionality  
+- Functionality
 - Usability/UX
 - Support/Service
 - Integrations
@@ -275,17 +276,16 @@ Insight categories to focus on:
 For each insight, provide:
 1. Competitor name
 2. Category (from the list above)
-3. Summary (2-3 sentences summarizing what was said)
-4. Direct quote (ONLY if the quote explicitly names the competitor - otherwise omit)
-5. Sentiment: Favorable to AcuityMD, Unfavorable to AcuityMD, or Neutral
-6. Call title, date, and call_id for reference (call_id is provided in each call header)
+3. Changes: A concise factual statement of what happened or what was said (1-2 sentences)
+4. Competitive implications: Why this matters for AcuityMD competitively (1-2 sentences)
+5. Call title, date, and call_id for reference (call_id is provided in each call header)
 
 IMPORTANT: Only include insights where external speakers genuinely shared competitive intelligence. Don't manufacture insights if the mentions are vague or off-topic.
 
 Transcript excerpts:
 {context_text}
 
-Return your analysis as a JSON array of insight objects with keys: competitor, category, summary, quote (optional), sentiment, call_title, call_date, call_id"""
+Return your analysis as a JSON array of insight objects with keys: competitor, category, changes, competitive_implications, call_title, call_date, call_id"""
 
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     
@@ -314,11 +314,64 @@ Return your analysis as a JSON array of insight objects with keys: competitor, c
         return []
 
 
+def generate_top3_summary(insights: list[dict], market_intel: dict) -> list[str]:
+    """Use OpenAI to generate a 'Top 3 Things to Know' executive summary."""
+    # Build a text dump of all insights and market intel for the AI
+    parts = []
+    for insight in insights:
+        parts.append(f"[Gong Call] Competitor: {insight.get('competitor')} | {insight.get('summary', '')}")
+    for comp, bullets in market_intel.items():
+        for b in bullets:
+            parts.append(f"[Market Intel] Competitor: {comp} | {b.get('bullet', '')}")
+
+    if not parts:
+        return []
+
+    combined = "\n".join(parts)
+
+    prompt = f"""You are a competitive intelligence analyst at AcuityMD, a medtech commercial intelligence platform.
+
+Below is this week's raw competitive intelligence from Gong calls and market research. Write exactly 3 concise, high-impact takeaways for AcuityMD's leadership team.
+
+Each takeaway should:
+- Lead with what happened and who it involves
+- Explain why it matters competitively for AcuityMD
+- Be 2-3 sentences max
+
+Raw intelligence:
+{combined}
+
+Return ONLY a JSON array of 3 strings, e.g. ["takeaway 1", "takeaway 2", "takeaway 3"]"""
+
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a competitive intelligence analyst. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        # Handle both {"items": [...]} and raw list
+        if isinstance(result, list):
+            return result[:3]
+        for v in result.values():
+            if isinstance(v, list):
+                return v[:3]
+        return []
+    except Exception as e:
+        logger.error(f"Failed to generate Top 3 summary: {e}")
+        return []
+
+
 # =============================================================================
 # Slack Formatting
 # =============================================================================
 
-def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], market_intel: dict = None) -> list[dict]:
+def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], market_intel: dict = None, top3: list[str] = None) -> list[dict]:
     """Format insights as Slack Block Kit blocks, grouped by competitor.
 
     Combines Gong call insights and market intelligence under each competitor heading.
@@ -328,14 +381,6 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
 
     if market_intel is None:
         market_intel = {}
-
-    # Build competitor lists for the context line
-    source_parts = []
-    if insights:
-        source_parts.append(":headphones: Gong calls")
-    if any(market_intel.get(c) for c in MARKET_INTEL_COMPETITORS):
-        source_parts.append(":satellite: Market signals")
-    sources_label = " + ".join(source_parts) if source_parts else "No data"
 
     blocks = [
         {
@@ -351,18 +396,26 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*Period:* {from_date} - {to_date} | *Sources:* {sources_label}"
+                    "text": f"*Period:* {from_date} - {to_date}"
                 }
             ]
         },
         {"type": "divider"}
     ]
 
-    sentiment_emoji = {
-        "Favorable to AcuityMD": ":large_green_circle:",
-        "Unfavorable to AcuityMD": ":red_circle:",
-        "Neutral": ":white_circle:"
-    }
+    # Top 3 Things to Know
+    if top3:
+        top3_text = "*Top 3 Things to Know*\n\n"
+        for i, item in enumerate(top3, 1):
+            top3_text += f"{i}. {item}\n\n"
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": top3_text.strip()
+            }
+        })
+        blocks.append({"type": "divider"})
 
     # Group Gong insights by competitor
     grouped_gong = {}
@@ -392,7 +445,7 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
         })
         return blocks
 
-    # Display each competitor with both call insights and market intel together
+    # Display each competitor with Changes / Competitive Implications / Sources
     for competitor in active_competitors:
         gong_insights = grouped_gong.get(competitor, [])
         intel_bullets = market_intel.get(competitor, [])
@@ -406,53 +459,93 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
             }
         })
 
-        # Gong call insights
+        # --- Changes section ---
+        changes_lines = []
         for insight in gong_insights:
-            sentiment = insight.get("sentiment", "Neutral")
-            emoji = sentiment_emoji.get(sentiment, ":white_circle:")
+            category = insight.get('category', 'General')
+            changes = insight.get('changes', insight.get('summary', ''))
+            changes_lines.append(f"• _{category}_ — {changes}")
+        for bullet_data in intel_bullets:
+            changes_lines.append(f"• {bullet_data.get('bullet', '')}")
 
-            insight_text = f"{emoji} _{insight.get('category', 'General')}_\n\n"
-            insight_text += f"{insight.get('summary', '')}\n\n"
+        if changes_lines:
+            changes_text = "*Changes:*\n" + "\n".join(changes_lines)
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": changes_text
+                }
+            })
 
-            if insight.get("quote"):
-                insight_text += f"> \"{insight['quote']}\"\n\n"
+        # --- Competitive Implications section ---
+        implications_lines = []
+        for insight in gong_insights:
+            impl = insight.get('competitive_implications', '')
+            if impl:
+                implications_lines.append(f"• {impl}")
 
+        if implications_lines:
+            impl_text = "*Competitive Implications:*\n" + "\n".join(implications_lines)
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": impl_text
+                }
+            })
+
+        # --- Sources section ---
+        sources_lines = []
+        seen_sources = set()
+        for insight in gong_insights:
             call_title = insight.get('call_title', 'Unknown Call')
             call_date = insight.get('call_date', 'Unknown Date')
             call_id = insight.get('call_id')
             if call_id:
                 call_id = str(call_id).split("|")[0].strip()
-
-            if call_id:
-                gong_url = f"https://app.gong.io/call?id={call_id}"
-                insight_text += f"_Source: {call_title} ({call_date})_\n{gong_url}"
-            else:
-                insight_text += f"_Source: {call_title} ({call_date})_"
-
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": insight_text
-                }
-            })
-
-        # Market intel bullets
+            source_key = call_id or call_title
+            if source_key not in seen_sources:
+                seen_sources.add(source_key)
+                if call_id:
+                    gong_url = f"https://app.gong.io/call?id={call_id}"
+                    sources_lines.append(f"• <{gong_url}|{call_title}> ({call_date})")
+                else:
+                    sources_lines.append(f"• {call_title} ({call_date})")
         for bullet_data in intel_bullets:
-            bullet_text = f":satellite: {bullet_data.get('bullet', '')}"
             source_url = bullet_data.get("source_url")
-            if source_url:
-                bullet_text += f"\n_<{source_url}|Source>_"
+            if source_url and source_url not in seen_sources:
+                seen_sources.add(source_url)
+                sources_lines.append(f"• <{source_url}|Link>")
 
+        if sources_lines:
+            sources_text = "*Sources:*\n" + "\n".join(sources_lines)
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": bullet_text
+                    "text": sources_text
                 }
             })
 
         blocks.append({"type": "divider"})
+
+    # --- No New Competitor Content section ---
+    no_content_competitors = [
+        comp for comp in ALL_COMPETITORS_ORDER if comp not in active_competitors
+    ]
+    if no_content_competitors:
+        blocks.append({"type": "divider"})
+        no_content_text = "*No New Competitor Content*\n" + ", ".join(no_content_competitors)
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": no_content_text
+                }
+            ]
+        })
 
     # Remove trailing divider
     if blocks and blocks[-1].get("type") == "divider":
@@ -461,7 +554,7 @@ def format_slack_blocks(insights: list[dict], date_range: tuple[str, str], marke
     return blocks
 
 
-def format_digest_as_text(insights: list[dict], date_range: tuple[str, str], market_intel: dict = None) -> str:
+def format_digest_as_text(insights: list[dict], date_range: tuple[str, str], market_intel: dict = None, top3: list[str] = None) -> str:
     """Format insights as editable text for a modal, grouped by competitor. Uses Slack mrkdwn formatting."""
     from_date = datetime.fromisoformat(date_range[0].replace("Z", "+00:00")).strftime("%B %d, %Y")
     to_date = datetime.fromisoformat(date_range[1].replace("Z", "+00:00")).strftime("%B %d, %Y")
@@ -475,11 +568,14 @@ def format_digest_as_text(insights: list[dict], date_range: tuple[str, str], mar
         "",
     ]
 
-    sentiment_emoji = {
-        "Favorable to AcuityMD": ":large_green_circle:",
-        "Unfavorable to AcuityMD": ":red_circle:",
-        "Neutral": ":white_circle:"
-    }
+    if top3:
+        lines.append("*TOP 3 THINGS TO KNOW*")
+        lines.append("")
+        for i, item in enumerate(top3, 1):
+            lines.append(f"{i}. {item}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
 
     # Group Gong insights by competitor
     grouped_gong = {}
@@ -509,51 +605,78 @@ def format_digest_as_text(insights: list[dict], date_range: tuple[str, str], mar
         lines.append(f"*{competitor}*")
         lines.append("")
 
-        # Gong call insights
+        # --- Changes section ---
+        changes_lines = []
         for insight in gong_insights:
-            sentiment = insight.get("sentiment", "Neutral")
-            emoji = sentiment_emoji.get(sentiment, ":white_circle:")
+            category = insight.get('category', 'General')
+            changes = insight.get('changes', insight.get('summary', ''))
+            changes_lines.append(f"• _{category}_ — {changes}")
+        for bullet_data in intel_bullets:
+            changes_lines.append(f"• {bullet_data.get('bullet', '')}")
 
-            lines.append(f"{emoji} _{insight.get('category', 'General')}_")
-            lines.append(f"Sentiment: {sentiment}")
+        if changes_lines:
+            lines.append("Changes:")
+            lines.extend(changes_lines)
             lines.append("")
-            lines.append(insight.get('summary', ''))
 
-            if insight.get("quote"):
-                lines.append("")
-                lines.append(f'> "{insight["quote"]}"')
+        # --- Competitive Implications section ---
+        implications_lines = []
+        for insight in gong_insights:
+            impl = insight.get('competitive_implications', '')
+            if impl:
+                implications_lines.append(f"• {impl}")
 
+        if implications_lines:
+            lines.append("Competitive Implications:")
+            lines.extend(implications_lines)
+            lines.append("")
+
+        # --- Sources section ---
+        sources_lines = []
+        seen_sources = set()
+        for insight in gong_insights:
             call_title = insight.get('call_title', 'Unknown Call')
             call_date = insight.get('call_date', 'Unknown Date')
             call_id = insight.get('call_id')
             if call_id:
                 call_id = str(call_id).split("|")[0].strip()
-
-            lines.append("")
-            if call_id:
-                gong_url = f"https://app.gong.io/call?id={call_id}"
-                lines.append(f"_Source: {call_title} ({call_date})_")
-                lines.append(gong_url)
-            else:
-                lines.append(f"_Source: {call_title} ({call_date})_")
-            lines.append("")
-
-        # Market intel bullets
+            source_key = call_id or call_title
+            if source_key not in seen_sources:
+                seen_sources.add(source_key)
+                if call_id:
+                    gong_url = f"https://app.gong.io/call?id={call_id}"
+                    sources_lines.append(f"• {call_title} ({call_date}) — {gong_url}")
+                else:
+                    sources_lines.append(f"• {call_title} ({call_date})")
         for bullet_data in intel_bullets:
-            lines.append(f":satellite: {bullet_data.get('bullet', '')}")
             source_url = bullet_data.get("source_url")
-            if source_url:
-                lines.append(f"_Source: {source_url}_")
+            if source_url and source_url not in seen_sources:
+                seen_sources.add(source_url)
+                sources_lines.append(f"• {source_url}")
+
+        if sources_lines:
+            lines.append("Sources:")
+            lines.extend(sources_lines)
             lines.append("")
+
+    # --- No New Competitor Content section ---
+    no_content_competitors = [
+        comp for comp in ALL_COMPETITORS_ORDER if comp not in active_competitors
+    ]
+    if no_content_competitors:
+        lines.append("---")
+        lines.append("")
+        lines.append("No New Competitor Content: " + ", ".join(no_content_competitors))
+        lines.append("")
 
     return "\n".join(lines)
 
 
-def format_approval_message(insights: list[dict], date_range: tuple[str, str], market_intel: dict = None) -> tuple[list[dict], str]:
+def format_approval_message(insights: list[dict], date_range: tuple[str, str], market_intel: dict = None, top3: list[str] = None) -> tuple[list[dict], str]:
     """Format the DM message with approval buttons. Returns (blocks, digest_id)."""
     if market_intel is None:
         market_intel = {}
-    blocks = format_slack_blocks(insights, date_range, market_intel)
+    blocks = format_slack_blocks(insights, date_range, market_intel, top3=top3)
 
     # Store insights with a unique ID (Slack button values have 2000 char limit)
     # Pre-compute the editable text so it's ready instantly when Edit is clicked
@@ -562,7 +685,7 @@ def format_approval_message(insights: list[dict], date_range: tuple[str, str], m
         "insights": insights,
         "date_range": date_range,
         "market_intel": market_intel,
-        "editable_text": format_digest_as_text(insights, date_range, market_intel)
+        "editable_text": format_digest_as_text(insights, date_range, market_intel, top3=top3)
     }
     
     # Add approval buttons
@@ -661,8 +784,13 @@ def generate_and_send_digest():
         logger.error(f"Market intel collection failed: {e}")
         market_intel = {}
 
+    # Generate Top 3 executive summary
+    logger.info("Generating Top 3 summary...")
+    top3 = generate_top3_summary(insights, market_intel)
+    logger.info(f"Generated {len(top3)} top takeaways")
+
     # Format and send to approval channel
-    blocks, digest_id = format_approval_message(insights, (from_date, to_date), market_intel)
+    blocks, digest_id = format_approval_message(insights, (from_date, to_date), market_intel, top3=top3)
 
     try:
         app.client.chat_postMessage(
