@@ -2,205 +2,183 @@
 """
 Market Intelligence Module
 
-Scrapes public web sources (IR pages, press releases, financial data, competitor blogs)
-to generate competitive market intelligence for AcuityMD.
+Uses Claude API with web_search to find recent competitor updates
+(pricing, features, announcements) and synthesize actionable intelligence.
 
-Tracks: Veeva Systems, Definitive Healthcare, Alpha Sophia, IQVIA
+Tracks: Veeva Systems, Definitive Healthcare, Alpha Sophia, IQVIA, MedScout, RepSignal
 Outputs: Max 3 bullets per competitor with source URLs.
 """
 
 from __future__ import annotations
 
-import re
 import json
 import logging
-import requests
+import os
+import time
 from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
-import openai
 
 logger = logging.getLogger(__name__)
 
-MARKET_INTEL_COMPETITORS = ["Veeva Systems", "Definitive Healthcare", "Alpha Sophia", "IQVIA"]
+MARKET_INTEL_COMPETITORS = [
+    "Veeva Systems",
+    "Definitive Healthcare",
+    "Alpha Sophia",
+    "IQVIA",
+    "MedScout",
+    "RepSignal",
+]
 
-COMPETITOR_SOURCES = {
-    "Veeva Systems": [
-        {"name": "Veeva Newsroom", "url": "https://www.veeva.com/resources/newsroom/"},
-        {"name": "Finviz - VEEV", "url": "https://finviz.com/quote.ashx?t=VEEV"},
-    ],
-    "Definitive Healthcare": [
-        {"name": "DH Investor Relations", "url": "https://ir.definitivehc.com/news-and-events/news-releases"},
-        {"name": "DH Blog", "url": "https://www.definitivehc.com/blog"},
-        {"name": "Finviz - DH", "url": "https://finviz.com/quote.ashx?t=DH"},
-    ],
-    "Alpha Sophia": [
-        {"name": "Alpha Sophia Blog", "url": "https://www.alphasophia.com/blog"},
-    ],
-    "IQVIA": [
-        {"name": "IQVIA Newsroom", "url": "https://www.iqvia.com/newsroom"},
-        {"name": "Finviz - IQV", "url": "https://finviz.com/quote.ashx?t=IQV"},
-    ],
+# Context for each competitor to guide web search
+COMPETITOR_CONTEXT = {
+    "Veeva Systems": {
+        "description": "Enterprise cloud platform for life sciences — CRM, content, quality, regulatory. Customers include Medtronic, BD, Philips.",
+        "domains": "veeva.com",
+        "context": "AcuityMD competes on being purpose-built for medtech sales vs Veeva's pharma-first approach.",
+    },
+    "Definitive Healthcare": {
+        "description": "Broad healthcare data and analytics platform — hospital profiles, physician data, claims records. 9,000+ hospital profiles, 3M+ HCPs.",
+        "domains": "definitivehc.com",
+        "context": "AcuityMD competes on medtech-specific workflows vs Definitive's horizontal data platform.",
+    },
+    "Alpha Sophia": {
+        "description": "Affordable MedTech commercial intelligence platform targeting startups and SMBs. Claims ~80% of US medical claims data.",
+        "domains": "alphasophia.com",
+        "context": "Alpha Sophia positions as the cheaper alternative to AcuityMD for smaller teams.",
+    },
+    "IQVIA": {
+        "description": "Global healthcare data and technology company — largest healthcare dataset, OCE CRM, real-world evidence, consulting.",
+        "domains": "iqvia.com",
+        "context": "IQVIA is primarily pharma-oriented with medtech as a secondary vertical.",
+    },
+    "MedScout": {
+        "description": "Revenue acceleration platform for medtech — 310M+ patients, 34B+ claims translated into actionable sales insights. Founded 2020, Austin TX. $20.8M raised.",
+        "domains": "medscout.io, medscout.cloud",
+        "context": "MedScout is a direct competitor with very similar positioning — claims-based physician targeting for medtech sales reps.",
+    },
+    "RepSignal": {
+        "description": "AI-powered commercial intelligence for medical device companies by S2N Health — 1.2M physicians, 50K+ facilities. Natively built on Salesforce.",
+        "domains": "s2nhealth.com, repsignal.com",
+        "context": "RepSignal competes on Salesforce-native integration — appeals to teams already on SFDC.",
+    },
 }
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+MODEL = "claude-sonnet-4-6"
 
 
-def fetch_page(url: str, timeout: int = 15) -> str | None:
-    """Fetch a web page with error handling."""
+def _api_call_with_retry(fn, label="API call"):
+    """Call fn() with retry + backoff on rate limits."""
+    import anthropic as _anthropic
+
+    for attempt in range(5):
+        try:
+            return fn()
+        except _anthropic.RateLimitError:
+            wait = 30 * (attempt + 1)
+            logger.info(f"Rate limited on {label}, waiting {wait}s...")
+            time.sleep(wait)
+    logger.error(f"Failed {label} after retries.")
+    return None
+
+
+def _scan_competitor(client, name: str, info: dict) -> dict:
+    """Use Claude with web_search to find recent updates for a competitor."""
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+
+    prompt = (
+        f"Search for any recent news, updates, or changes about {name} "
+        f"({info['description']}) from the past 7 days ({week_ago} to {today}).\n\n"
+        f"Look specifically for:\n"
+        f"- Pricing changes or new plan tiers\n"
+        f"- New product features or platform updates\n"
+        f"- Major announcements, partnerships, acquisitions, or funding\n"
+        f"- Earnings reports or significant business updates\n"
+        f"- Notable blog posts, press releases, or industry event appearances\n\n"
+        f"Relevant domains: {info['domains']}\n\n"
+        f"Competitive context: {info['context']}\n\n"
+        f"For each finding, provide:\n"
+        f"- A **bold lead-in phrase** followed by 1-2 sentences of context\n"
+        f"- Why it matters competitively for AcuityMD\n"
+        f"- The source URL\n\n"
+        f"Return UP TO 3 findings as a JSON array:\n"
+        f'[{{"bullet": "**Bold lead-in.** Context and competitive implication.", "source_url": "https://..."}}]\n\n'
+        f"If there are no significant updates in the past 7 days, return an empty array: []\n"
+        f"Return ONLY valid JSON, no other text."
+    )
+
+    logger.info(f"Scanning {name} via web search...")
+
+    response = _api_call_with_retry(
+        lambda: client.messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+            messages=[{"role": "user", "content": prompt}],
+        ),
+        label=name,
+    )
+
+    if response is None:
+        return {"name": name, "bullets": []}
+
+    # Extract text from response
+    text_parts = []
+    for block in response.content:
+        if block.type == "text":
+            text_parts.append(block.text)
+
+    raw_text = "\n".join(text_parts).strip()
+
+    # Parse JSON from response
     try:
-        response = requests.get(url, headers=HEADERS, timeout=timeout)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        logger.warning(f"Failed to fetch {url}: {e}")
-        return None
-
-
-def extract_page_content(html: str, max_chars: int = 6000) -> str:
-    """Extract clean text content from HTML, preserving basic structure."""
-    soup = BeautifulSoup(html, "lxml")
-
-    # Remove non-content elements
-    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "iframe", "noscript"]):
-        tag.decompose()
-
-    text = soup.get_text(separator="\n", strip=True)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text[:max_chars]
-
-
-def fetch_competitor_updates() -> dict[str, list[dict]]:
-    """Fetch raw content from all competitor sources.
-
-    Returns: {competitor_name: [{"source_name": ..., "source_url": ..., "content": ...}]}
-    """
-    all_updates = {}
-
-    for competitor, sources in COMPETITOR_SOURCES.items():
-        updates = []
-        for source in sources:
-            logger.info(f"Fetching {source['name']} for {competitor}...")
-            html = fetch_page(source["url"])
-            if not html:
-                continue
-
-            content = extract_page_content(html)
-            if content and len(content.strip()) > 100:
-                updates.append({
-                    "source_name": source["name"],
-                    "source_url": source["url"],
-                    "content": content,
-                })
-
-        all_updates[competitor] = updates
-        logger.info(f"Collected {len(updates)} sources for {competitor}")
-
-    return all_updates
-
-
-def synthesize_intel(raw_updates: dict[str, list[dict]], openai_api_key: str) -> dict[str, list[dict]]:
-    """Use GPT-4O to synthesize raw web content into max 3 bullets per competitor.
-
-    Returns: {competitor_name: [{"bullet": "...", "source_url": "..."}]}
-    """
-    context_parts = []
-    for competitor, updates in raw_updates.items():
-        if not updates:
-            context_parts.append(f"\n=== {competitor} ===\nNo data collected this week.\n")
-            continue
-
-        context_parts.append(f"\n=== {competitor} ===")
-        for update in updates:
-            context_parts.append(f"\n--- Source: {update['source_name']} ({update['source_url']}) ---")
-            context_parts.append(update["content"])
-
-    context_text = "\n".join(context_parts)
-
-    today = datetime.utcnow()
-    week_ago = today - timedelta(days=7)
-
-    prompt = f"""You are a competitive intelligence analyst for AcuityMD, a medtech commercial intelligence platform.
-
-Analyze the following scraped web content from competitor sources. For each competitor, produce UP TO 3 concise bullets summarizing the most important recent developments and their competitive implications for AcuityMD.
-
-Competitors: Veeva Systems, Definitive Healthcare, Alpha Sophia, IQVIA
-
-Today's date: {today.strftime('%B %d, %Y')}
-Focus window: Past 7 days ({week_ago.strftime('%B %d')} - {today.strftime('%B %d, %Y')})
-
-Guidelines:
-- Each bullet should have a **bold lead-in phrase** followed by 1-2 sentences of context/implication
-- Focus on: product announcements, earnings/financial signals, partnerships, strategic moves, content shifts, and anything that affects AcuityMD's competitive position
-- If a competitor has no meaningful recent news, return an empty array for them — don't force bullets
-- Prioritize actionable intelligence over general observations
-- Include the source URL for each bullet (use the source URL provided, not a fabricated one)
-- Maximum 3 bullets per competitor, fewer is fine
-
-Scraped content:
-{context_text}
-
-Return your analysis as a JSON object with this structure:
-{{
-  "Veeva Systems": [{{"bullet": "**Bold lead-in.** Context sentence.", "source_url": "https://..."}}],
-  "Definitive Healthcare": [...],
-  "Alpha Sophia": [...],
-  "IQVIA": [...]
-}}
-
-Only return valid JSON. If no meaningful intelligence exists for a competitor, use an empty array."""
-
-    client = openai.OpenAI(api_key=openai_api_key)
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a competitive intelligence analyst. Return only valid JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"},
-        )
-
-        result = json.loads(response.choices[0].message.content)
-
-        # Validate and cap at 3 bullets per competitor
-        validated = {}
-        for competitor in MARKET_INTEL_COMPETITORS:
-            bullets = result.get(competitor, [])
+        # Try to extract JSON array from the response
+        import re
+        json_match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+        if json_match:
+            bullets = json.loads(json_match.group())
             if isinstance(bullets, list):
-                validated[competitor] = bullets[:3]
-            else:
-                validated[competitor] = []
+                return {"name": name, "bullets": bullets[:3]}
+        return {"name": name, "bullets": []}
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning(f"Failed to parse JSON for {name}: {e}")
+        # Fall back to unstructured bullet
+        if raw_text and "no significant" not in raw_text.lower():
+            return {"name": name, "bullets": [{"bullet": raw_text[:500], "source_url": ""}]}
+        return {"name": name, "bullets": []}
 
-        return validated
 
-    except Exception as e:
-        logger.error(f"Failed to synthesize market intel: {e}")
-        return {comp: [] for comp in MARKET_INTEL_COMPETITORS}
+def get_market_intel(openai_api_key: str = None) -> dict[str, list[dict]]:
+    """Main entry point: scan competitors via Claude web_search.
 
-
-def get_market_intel(openai_api_key: str) -> dict[str, list[dict]]:
-    """Main entry point: fetch and synthesize market intelligence.
+    The openai_api_key parameter is kept for backward compatibility with the
+    existing bot but is not used. Uses ANTHROPIC_API_KEY from environment.
 
     Returns: {competitor_name: [{"bullet": "...", "source_url": "..."}]}
     """
-    logger.info("Starting market intelligence collection...")
-    raw_updates = fetch_competitor_updates()
-
-    total_sources = sum(len(updates) for updates in raw_updates.values())
-    if total_sources == 0:
-        logger.warning("No web sources could be fetched. Skipping market intel synthesis.")
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        logger.error("ANTHROPIC_API_KEY not found in environment. Skipping market intel.")
         return {comp: [] for comp in MARKET_INTEL_COMPETITORS}
 
-    logger.info(f"Collected content from {total_sources} sources. Synthesizing...")
-    intel = synthesize_intel(raw_updates, openai_api_key)
+    try:
+        import anthropic
+    except ImportError:
+        logger.error("anthropic package not installed. Run: pip install anthropic")
+        return {comp: [] for comp in MARKET_INTEL_COMPETITORS}
 
-    total_bullets = sum(len(bullets) for bullets in intel.values())
-    logger.info(f"Market intel complete: {total_bullets} bullets across {len([c for c, b in intel.items() if b])} competitors")
+    client = anthropic.Anthropic(api_key=api_key)
+
+    logger.info("Starting market intelligence collection via Claude web_search...")
+    intel = {}
+
+    for name in MARKET_INTEL_COMPETITORS:
+        info = COMPETITOR_CONTEXT[name]
+        result = _scan_competitor(client, name, info)
+        intel[name] = result["bullets"]
+        logger.info(f"  {name}: {len(result['bullets'])} bullets")
+
+    total_bullets = sum(len(b) for b in intel.values())
+    active = len([c for c, b in intel.items() if b])
+    logger.info(f"Market intel complete: {total_bullets} bullets across {active} competitors")
 
     return intel

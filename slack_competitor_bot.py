@@ -3,7 +3,8 @@
 Slack Competitor Insights Bot
 
 Analyzes Gong calls from the past week to extract competitive intelligence
-about MedScout, Definitive Healthcare, and RepSignal from external speakers.
+about MedScout, Definitive Healthcare, and RepSignal from external speakers,
+plus web-sourced market intelligence (via Claude web_search) for all competitors.
 
 Runs on a weekly schedule, DMs the digest for approval, then posts to #competitors.
 """
@@ -37,8 +38,11 @@ logger = logging.getLogger(__name__)
 GONG_ACCESS_KEY = os.environ.get("GONG_ACCESS_KEY", "")
 GONG_SECRET_KEY = os.environ.get("GONG_SECRET_KEY", "")
 
-# OpenAI API key
+# OpenAI API key (used for Gong transcript analysis)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Anthropic API key (used for market intel web search)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("CLAUDE_API_KEY", "")
 
 # Slack credentials
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")  # Bot User OAuth Token
@@ -71,6 +75,10 @@ ALL_COMPETITORS_ORDER = [
     "RepSignal",
     "Alpha Sophia",
 ]
+
+# Ensure ANTHROPIC_API_KEY is available for market intel
+if ANTHROPIC_API_KEY:
+    os.environ.setdefault("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY)
 
 
 def get_date_range() -> tuple[str, str]:
