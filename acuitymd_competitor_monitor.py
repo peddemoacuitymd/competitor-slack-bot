@@ -2,8 +2,8 @@
 """
 Weekly competitor monitor for AcuityMD.
 
-Scans 5 competitors (Veeva Systems, Definitive Healthcare, Alpha Sophia,
-IQVIA MedTech, Carevoyance) for pricing changes, feature launches, and
+Scans 8 competitors (Veeva, Definitive Healthcare, Alpha Sophia,
+IQVIA MedTech, MedScout, RepSignal, Sorcero/Axiom) for pricing changes, feature launches, and
 announcements using Claude's web_search tool, then synthesizes a brief
 and emails it via Gmail SMTP.
 
@@ -56,10 +56,10 @@ COMPETITORS = [
         "context": "IQVIA is primarily pharma-oriented with medtech as a secondary vertical. Competes on data scale and global footprint vs AcuityMD's medtech focus.",
     },
     {
-        "name": "Carevoyance (by Definitive Healthcare)",
-        "description": "Procedure-level commercial intelligence for medical device sales — CPT code volume by physician and facility, territory planning.",
-        "domains": "definitivehc.com, carevoyance.com",
-        "context": "Carevoyance is the most directly comparable competitor — same procedure-level targeting as AcuityMD. Acquired by Definitive Healthcare.",
+        "name": "Sorcero MedTech (Axiom Health)",
+        "description": "AI-powered medical and commercial intelligence platform spanning pharma and medtech. Acquired Axiom Health for claims-based medtech intelligence — 330M patient journeys, 5B+ claims, 5.9M physicians. Stakeholder micro-targeting and market analytics.",
+        "domains": "sorcero.com",
+        "context": "Sorcero/Axiom competes directly on claims-based physician targeting similar to AcuityMD. Differentiator is cross-vertical pharma+device intelligence. Backed by life sciences AI pedigree. Watch for bundled pharma+medtech deals that AcuityMD can't match.",
     },
     {
         "name": "MedScout",
@@ -98,9 +98,12 @@ def api_call_with_retry(fn, label="API call"):
     for attempt in range(5):
         try:
             return fn()
-        except _anthropic.RateLimitError:
+        except (_anthropic.RateLimitError, _anthropic.APIStatusError) as e:
+            if isinstance(e, _anthropic.APIStatusError) and not isinstance(e, _anthropic.RateLimitError) and e.status_code != 529:
+                raise
             wait = 30 * (attempt + 1)
-            print(f"    Rate limited on {label}, waiting {wait}s...")
+            reason = "overloaded" if getattr(e, 'status_code', None) == 529 else "rate limited"
+            print(f"    {reason.capitalize()} on {label}, waiting {wait}s...")
             time.sleep(wait)
     print(f"    Failed {label} after retries.")
     return None
@@ -194,7 +197,7 @@ def synthesize_brief(client, results):
     response = api_call_with_retry(
         lambda: client.messages.create(
             model=MODEL,
-            max_tokens=2048,
+            max_tokens=8192,
             messages=[{"role": "user", "content": prompt}],
         ),
         label="synthesis",
@@ -282,14 +285,144 @@ def save_report(brief, filepath):
     print(f"  Report saved: {filepath}")
 
 
+def md_to_slack_mrkdwn(text):
+    """Convert markdown to Slack mrkdwn format."""
+    import re
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<\2|\1>', text)
+    text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
+    text = re.sub(r'^# (.+)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$', r'\n*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.+)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^---$', r'', text, flags=re.MULTILINE)
+    return text
+
+
+def slack_api(method, payload):
+    """Call Slack Web API."""
+    token = os.environ.get("SLACK_BOT_TOKEN")
+    if not token:
+        print("  Error: SLACK_BOT_TOKEN not found in .env")
+        return None
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://slack.com/api/{method}",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+    )
+    with urllib.request.urlopen(req) as resp:
+        result = json.loads(resp.read())
+        if not result.get("ok"):
+            print(f"  Slack API error: {result.get('error')}")
+        return result
+
+
+def build_slack_blocks(brief):
+    """Convert markdown brief to Slack Block Kit blocks."""
+    import re
+    slack_text = md_to_slack_mrkdwn(brief)
+    sections = re.split(r'\n(?=\n\*(?:Veeva|Definitive|Alpha|IQVIA|Sorcero|MedScout|RepSignal|Top 3))', slack_text)
+
+    blocks = []
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        while len(section) > 3000:
+            cut = section[:3000].rfind('\n')
+            if cut == -1:
+                cut = 3000
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": section[:cut]}})
+            section = section[cut:].strip()
+        if section:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": section}})
+        blocks.append({"type": "divider"})
+
+    if blocks and blocks[-1]["type"] == "divider":
+        blocks.pop()
+
+    return blocks
+
+
+SLACK_DM_CHANNEL = "D0ABMH6JR17"  # DM channel with approver
+SLACK_TARGET_CHANNEL = "#competitors"
+
+
+def slack_dm_for_review(brief):
+    """DM the brief to the approver for review."""
+    blocks = build_slack_blocks(brief)
+
+    # Add review instructions at the top
+    blocks.insert(0, {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": ":mag: *New competitor brief ready for review.*\nCheck the brief below. When ready, run:\n`cd ~/Programming/claude_site && .venv/bin/python3 acuitymd_competitor_monitor.py --post`",
+        },
+    })
+    blocks.insert(1, {"type": "divider"})
+
+    result = slack_api("chat.postMessage", {
+        "channel": SLACK_DM_CHANNEL,
+        "text": "New competitor brief ready for review",
+        "blocks": blocks,
+        "unfurl_links": False,
+    })
+
+    if result and result.get("ok"):
+        print("  DM sent for review!")
+    return result
+
+
+def slack_post_to_channel(brief):
+    """Post the brief to the public #competitors channel."""
+    blocks = build_slack_blocks(brief)
+
+    # Add footer
+    blocks.append({"type": "divider"})
+    blocks.append({
+        "type": "context",
+        "elements": [{"type": "mrkdwn", "text": "_Generated by acuitymd_competitor_monitor.py — web intelligence scan_"}],
+    })
+
+    result = slack_api("chat.postMessage", {
+        "channel": SLACK_TARGET_CHANNEL,
+        "text": "AcuityMD Competitor Brief",
+        "blocks": blocks,
+        "unfurl_links": False,
+    })
+
+    if result and result.get("ok"):
+        print(f"  Posted to {SLACK_TARGET_CHANNEL}!")
+    return result
+
+
+def get_latest_report():
+    """Find the most recent report file."""
+    reports_dir = Path(__file__).parent / "reports"
+    reports = sorted(reports_dir.glob("acuitymd-competitor-brief-*.md"), reverse=True)
+    if not reports:
+        print("Error: No reports found in reports/ directory")
+        sys.exit(1)
+    return reports[0]
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Weekly AcuityMD competitor monitor — scans 5 MedTech competitors and emails a brief"
+        description="Weekly AcuityMD competitor monitor — scans 7 MedTech competitors and emails a brief"
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Scan and print the report without emailing",
+        help="Scan and print the report without emailing or Slacking",
+    )
+    parser.add_argument(
+        "--post",
+        action="store_true",
+        help="Post the latest report to #competitors (after review)",
     )
     parser.add_argument(
         "--to",
@@ -299,6 +432,15 @@ def main():
     args = parser.parse_args()
 
     load_env()
+
+    # --post mode: just post the latest report to Slack and exit
+    if args.post:
+        report = get_latest_report()
+        brief = report.read_text()
+        print(f"\n📢 Posting {report.name} to {SLACK_TARGET_CHANNEL}...")
+        slack_post_to_channel(brief)
+        print("\n✅ Done!")
+        return
 
     api_key = os.environ.get("CLAUDE_API_KEY")
     if not api_key:
@@ -329,18 +471,25 @@ def main():
     report_path = Path(__file__).parent / "reports" / f"acuitymd-competitor-brief-{today}.md"
     save_report(brief, report_path)
 
-    # Print or email
     if args.dry_run:
         print("\n" + "=" * 60)
         print(brief)
         print("=" * 60)
-        print("\n✅ Dry run complete — email not sent.")
+        print("\n✅ Dry run complete.")
     else:
+        # Step 1: Email
         print("\n📧 Sending email...")
         subject = f"AcuityMD Competitor Brief — Week of {datetime.now().strftime('%B %d, %Y')}"
         html_body = generate_html_email(brief)
         send_email(args.to, subject, html_body)
-        print(f"\n✅ Done! Brief emailed to {args.to}")
+        print(f"  Emailed to {args.to}")
+
+        # Step 2: DM for review
+        print("\n💬 Sending Slack DM for review...")
+        slack_dm_for_review(brief)
+
+        print(f"\n✅ Done! Review the brief, then run:")
+        print(f"   .venv/bin/python3 acuitymd_competitor_monitor.py --post")
 
 
 if __name__ == "__main__":
