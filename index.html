@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Code — Ship Faster Without Filing a Ticket</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-bg: #FAFAF8;
+            --color-bg-alt: #F3F2EF;
+            --color-surface: #FFFFFF;
+            --color-accent: #C45D3E;
+            --color-accent-light: rgba(196, 93, 62, 0.08);
+            --color-accent-glow: rgba(196, 93, 62, 0.25);
+            --color-dark: #1A1A1A;
+            --color-text: #1A1A1A;
+            --color-text-secondary: #6B6B6B;
+            --color-text-tertiary: #9A9A9A;
+            --color-border: #E8E6E1;
+            --font-display: 'Instrument Serif', Georgia, serif;
+            --font-body: 'DM Sans', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-body);
+            color: var(--color-text);
+            line-height: 1.6;
+            background: var(--color-bg);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── Scroll animation base ── */
+        .fade-up {
+            opacity: 0;
+            transform: translateY(32px);
+            transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+                        transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .fade-up.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ── Hero ── */
+        .hero {
+            background: var(--color-bg);
+            color: var(--color-text);
+            padding: 120px 24px 96px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .hero-accent-line {
+            width: 48px;
+            height: 3px;
+            background: var(--color-accent);
+            margin-bottom: 32px;
+            opacity: 0;
+            transform: scaleX(0);
+            transform-origin: left;
+            animation: accentReveal 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.2s forwards;
+        }
+
+        @keyframes accentReveal {
+            to { opacity: 1; transform: scaleX(1); }
+        }
+
+        .hero-objection {
+            display: inline-block;
+            background: var(--color-accent-light);
+            border: 1px solid rgba(196, 93, 62, 0.15);
+            border-radius: 100px;
+            padding: 8px 20px;
+            font-size: 0.88rem;
+            font-style: italic;
+            color: var(--color-accent);
+            margin-bottom: 28px;
+            opacity: 0;
+            animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.4s forwards;
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2.6rem, 5.5vw, 4rem);
+            font-weight: 400;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            margin-bottom: 24px;
+            opacity: 0;
+            animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.6s forwards;
+        }
+
+        .hero h1 span {
+            color: var(--color-accent);
+        }
+
+        .hero-subtitle {
+            font-size: 1.15rem;
+            color: var(--color-text-secondary);
+            max-width: 560px;
+            line-height: 1.7;
+            opacity: 0;
+            animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.8s forwards;
+        }
+
+        .hero-rule {
+            width: 100%;
+            height: 1px;
+            background: var(--color-border);
+            margin-top: 64px;
+            opacity: 0;
+            animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 1s forwards;
+        }
+
+        /* ── Section layout ── */
+        .section {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 96px 24px;
+        }
+
+        .section-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            color: var(--color-accent);
+            margin-bottom: 14px;
+        }
+
+        .section h2 {
+            font-family: var(--font-display);
+            font-size: clamp(1.8rem, 3vw, 2.4rem);
+            font-weight: 400;
+            margin-bottom: 16px;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+        }
+
+        .section > p {
+            font-size: 1.05rem;
+            color: var(--color-text-secondary);
+            max-width: 580px;
+            margin-bottom: 56px;
+            line-height: 1.7;
+        }
+
+        /* ── Pain point cards ── */
+        .pains {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .pain {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-left: 3px solid var(--color-accent);
+            border-radius: 2px;
+            padding: 32px 28px;
+            transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                        box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .pain:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
+        }
+
+        .pain-quote {
+            font-family: var(--font-display);
+            font-size: 1.05rem;
+            font-style: italic;
+            color: var(--color-text-secondary);
+            margin-bottom: 18px;
+            line-height: 1.5;
+        }
+
+        .pain h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--color-text);
+        }
+
+        .pain p {
+            font-size: 0.9rem;
+            color: var(--color-text-secondary);
+            line-height: 1.7;
+        }
+
+        /* ── Before / After ── */
+        .before-after-section {
+            background: var(--color-bg-alt);
+        }
+
+        .comparisons {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1px 1fr;
+            align-items: stretch;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .comp-before, .comp-after {
+            padding: 32px 36px;
+        }
+
+        .comp-before {
+            background: var(--color-surface);
+        }
+
+        .comp-after {
+            background: var(--color-surface);
+            transition: background 0.3s ease, transform 0.3s ease;
+        }
+
+        .comparison:hover .comp-after {
+            background: rgba(196, 93, 62, 0.03);
+        }
+
+        .comp-divider {
+            background: var(--color-border);
+            width: 1px;
+            align-self: stretch;
+        }
+
+        .comp-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .comp-before .comp-label { color: var(--color-text-tertiary); }
+        .comp-after .comp-label { color: var(--color-accent); }
+
+        .comp-before h3, .comp-after h3 {
+            font-family: var(--font-display);
+            font-size: 1.1rem;
+            font-weight: 400;
+            margin-bottom: 6px;
+            line-height: 1.35;
+        }
+
+        .comp-before p, .comp-after p {
+            font-size: 0.88rem;
+            color: var(--color-text-secondary);
+            line-height: 1.65;
+        }
+
+        /* ── Calculator section ── */
+        .calc-section {
+            background: var(--color-dark);
+            color: #fff;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Subtle noise texture overlay */
+        .calc-section::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 256px 256px;
+            pointer-events: none;
+        }
+
+        .calc-section .section {
+            position: relative;
+            z-index: 1;
+        }
+
+        .calc-section .section-label {
+            color: var(--color-accent);
+        }
+
+        .calc-section h2 {
+            color: #fff;
+        }
+
+        .calc-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: start;
+        }
+
+        .calc-sliders {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .slider-group label {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 0.92rem;
+            font-weight: 500;
+            margin-bottom: 10px;
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .slider-group label span {
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--color-accent);
+            min-width: 60px;
+            text-align: right;
+        }
+
+        .slider-group input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.12);
+            outline: none;
+            cursor: pointer;
+        }
+
+        .slider-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--color-accent);
+            border: 3px solid #fff;
+            cursor: pointer;
+            transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
+                        box-shadow 0.15s ease;
+        }
+
+        .slider-group input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 12px var(--color-accent-glow);
+        }
+
+        .slider-group input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--color-accent);
+            border: 3px solid #fff;
+            cursor: pointer;
+        }
+
+        .slider-desc {
+            font-size: 0.78rem;
+            color: rgba(255, 255, 255, 0.35);
+            margin-top: 6px;
+        }
+
+        /* Results panel */
+        .calc-results {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 40px 36px;
+            position: sticky;
+            top: 32px;
+            box-shadow: 0 0 60px rgba(196, 93, 62, 0.06);
+        }
+
+        .result-primary {
+            text-align: center;
+            margin-bottom: 32px;
+            padding-bottom: 28px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .result-primary .number {
+            font-family: var(--font-mono);
+            font-size: 3.6rem;
+            font-weight: 700;
+            line-height: 1;
+            color: var(--color-accent);
+            transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .result-primary .number.pulse {
+            animation: resultPulse 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        @keyframes resultPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.06); }
+            100% { transform: scale(1); }
+        }
+
+        .result-primary .label {
+            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 8px;
+        }
+
+        .result-primary .empty-state {
+            font-size: 1.05rem;
+            color: rgba(255, 255, 255, 0.35);
+            font-style: italic;
+            padding: 16px 0;
+        }
+
+        .result-secondary {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .result-secondary .stat-num {
+            font-family: var(--font-mono);
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .result-secondary .stat-label {
+            font-size: 0.72rem;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 2px;
+            letter-spacing: 0.3px;
+        }
+
+        /* Breakdown bars */
+        .result-breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .breakdown-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .breakdown-label {
+            font-size: 0.78rem;
+            color: rgba(255, 255, 255, 0.5);
+            width: 110px;
+            flex-shrink: 0;
+            text-align: right;
+        }
+
+        .breakdown-bar-track {
+            flex: 1;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .breakdown-bar-fill {
+            height: 100%;
+            background: var(--color-accent);
+            border-radius: 3px;
+            transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .breakdown-value {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.6);
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        /* Contextual CTA */
+        .calc-cta-message {
+            text-align: center;
+            font-size: 0.92rem;
+            color: rgba(255, 255, 255, 0.5);
+            margin-bottom: 20px;
+            min-height: 22px;
+            transition: opacity 0.2s ease;
+        }
+
+        .calc-cta-btn {
+            display: block;
+            text-align: center;
+            background: var(--color-accent);
+            color: #fff;
+            font-family: var(--font-body);
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 14px 28px;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                        box-shadow 0.2s ease;
+        }
+
+        .calc-cta-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(196, 93, 62, 0.3);
+        }
+
+        @media (max-width: 700px) {
+            .calc-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .calc-results {
+                position: static;
+            }
+
+            .result-primary .number {
+                font-size: 2.8rem;
+            }
+
+            .breakdown-label {
+                width: 80px;
+                font-size: 0.72rem;
+            }
+        }
+
+        /* ── Objection section ── */
+        .objection-section {
+            background: var(--color-bg);
+        }
+
+        .objection-section h2 {
+            font-style: italic;
+        }
+
+        .objection-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 32px;
+        }
+
+        .objection-card {
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+
+        .objection-card-accent {
+            width: 24px;
+            height: 2px;
+            background: var(--color-accent);
+            margin-bottom: 20px;
+        }
+
+        .objection-card h3 {
+            font-family: var(--font-display);
+            font-size: 1.15rem;
+            font-weight: 400;
+            font-style: italic;
+            margin-bottom: 12px;
+            color: var(--color-text);
+            line-height: 1.35;
+        }
+
+        .objection-card p {
+            font-size: 0.9rem;
+            color: var(--color-text-secondary);
+            line-height: 1.75;
+        }
+
+        /* ── CTA ── */
+        .cta {
+            background: var(--color-dark);
+            color: #fff;
+            text-align: center;
+            padding: 96px 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Subtle radial gradient */
+        .cta::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse at 50% 0%, rgba(196, 93, 62, 0.08) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .cta > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta h2 {
+            font-family: var(--font-display);
+            font-size: clamp(1.8rem, 3vw, 2.4rem);
+            font-weight: 400;
+            margin-bottom: 16px;
+            letter-spacing: -0.01em;
+        }
+
+        .cta > p {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 1.05rem;
+            max-width: 520px;
+            margin: 0 auto 48px;
+            line-height: 1.7;
+        }
+
+        .cta-steps {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0;
+            margin-bottom: 48px;
+            flex-wrap: wrap;
+        }
+
+        .cta-step {
+            text-align: center;
+            position: relative;
+            padding: 0 32px;
+        }
+
+        .cta-step-connector {
+            width: 48px;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.15);
+            flex-shrink: 0;
+        }
+
+        .cta-step-num {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid var(--color-accent);
+            color: var(--color-accent);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+        }
+
+        .cta-step p {
+            font-size: 0.88rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin: 0;
+        }
+
+        .cta-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-block;
+            background: var(--color-accent);
+            color: #fff;
+            font-family: var(--font-body);
+            font-size: 1rem;
+            font-weight: 600;
+            padding: 14px 36px;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                        box-shadow 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(196, 93, 62, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: none;
+            transform: translateY(-2px);
+        }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            padding: 32px 24px;
+            font-size: 0.82rem;
+            color: var(--color-text-tertiary);
+            background: var(--color-bg);
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 1024px) {
+            .hero { padding: 96px 24px 80px; }
+            .section { padding: 72px 24px; }
+        }
+
+        @media (max-width: 700px) {
+            .hero {
+                padding: 72px 20px 64px;
+            }
+            .section {
+                padding: 56px 20px;
+            }
+            .cta {
+                padding: 64px 20px;
+            }
+            .comparison {
+                grid-template-columns: 1fr;
+            }
+            .comp-divider {
+                width: 100%;
+                height: 1px;
+                align-self: auto;
+            }
+            .comp-before, .comp-after {
+                padding: 24px;
+            }
+            .cta-steps {
+                flex-direction: column;
+                gap: 20px;
+            }
+            .cta-step-connector {
+                width: 1px;
+                height: 24px;
+            }
+            .cta-step {
+                padding: 0;
+            }
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            .pain-quote {
+                font-size: 0.98rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="hero-accent-line"></div>
+        <div class="hero-objection">"I'm not a developer &mdash; why would I need a coding tool?"</div>
+        <h1>Stop waiting on engineering.<br><span>Start shipping yourself.</span></h1>
+        <p class="hero-subtitle">Claude Code lets product marketers build landing pages, pull competitive intel, and create interactive demos &mdash; all by typing plain English. No code skills required.</p>
+        <div class="hero-rule"></div>
+    </section>
+
+    <!-- Sound Familiar? -->
+    <section class="section">
+        <div class="section-label fade-up">Sound Familiar?</div>
+        <h2 class="fade-up">Your week shouldn't look like this</h2>
+        <p class="fade-up">You're measured on pipeline, content velocity, and competitive wins. But half your time disappears into waiting, formatting, and workarounds.</p>
+        <div class="pains">
+            <div class="pain fade-up">
+                <div class="pain-quote">"Can you update the headline on the launch page?"</div>
+                <h3>A Jira ticket for a one-line change</h3>
+                <p>You filed it Monday. Engineering estimated it Wednesday. It shipped the following sprint. The campaign window closed.</p>
+            </div>
+            <div class="pain fade-up" style="transition-delay: 0.08s;">
+                <div class="pain-quote">"We need updated battlecards by Friday."</div>
+                <h3>Competitor pricing in 14 open tabs</h3>
+                <p>You're manually copying numbers from pricing pages into a spreadsheet, reformatting it for slides, and praying nothing changed overnight.</p>
+            </div>
+            <div class="pain fade-up" style="transition-delay: 0.16s;">
+                <div class="pain-quote">"Can you show the board what the product actually does?"</div>
+                <h3>A slide deck when you need a live demo</h3>
+                <p>You know an interactive prototype would be 10x more persuasive than screenshots in a deck. But you can't build one, and design is booked through Q3.</p>
+            </div>
+            <div class="pain fade-up" style="transition-delay: 0.24s;">
+                <div class="pain-quote">"What's our marketing-sourced pipeline this quarter?"</div>
+                <h3>Hours formatting data for the QBR</h3>
+                <p>The data exists in three places. Getting it into a clean chart for the board deck takes an entire afternoon &mdash; every single quarter.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Before / After -->
+    <section class="section before-after-section">
+        <div class="section-label fade-up">What Changes with Claude Code</div>
+        <h2 class="fade-up">Same work. Fraction of the time.</h2>
+        <p class="fade-up">You describe what you want in plain English. Claude Code builds it, tests it, and hands you the finished result. Here's what that looks like in practice.</p>
+        <div class="comparisons">
+            <div class="comparison fade-up">
+                <div class="comp-before">
+                    <div class="comp-label">Before</div>
+                    <h3>File a ticket, wait two sprints for a landing page</h3>
+                    <p>Write a brief, wait for prioritization, review a staging link, request changes, wait again.</p>
+                </div>
+                <div class="comp-divider"></div>
+                <div class="comp-after">
+                    <div class="comp-label">With Claude Code</div>
+                    <h3>Describe the page, ship it in 30 minutes</h3>
+                    <p>"Build a comparison page for our product vs. Competitor X with a pricing table and a CTA." Done.</p>
+                </div>
+            </div>
+            <div class="comparison fade-up" style="transition-delay: 0.08s;">
+                <div class="comp-before">
+                    <div class="comp-label">Before</div>
+                    <h3>Copy competitor pricing by hand every quarter</h3>
+                    <p>Open 12 tabs, screenshot pricing pages, manually type numbers into a spreadsheet, reformat for the battlecard.</p>
+                </div>
+                <div class="comp-divider"></div>
+                <div class="comp-after">
+                    <div class="comp-label">With Claude Code</div>
+                    <h3>"Pull pricing from these 5 competitor pages into a table"</h3>
+                    <p>Claude Code writes a script, runs it, and gives you a clean CSV. Rerun it next quarter in one click.</p>
+                </div>
+            </div>
+            <div class="comparison fade-up" style="transition-delay: 0.16s;">
+                <div class="comp-before">
+                    <div class="comp-label">Before</div>
+                    <h3>Static screenshots in a board deck</h3>
+                    <p>You know an interactive demo would land better, but there's no way you're getting eng time for a sales tool.</p>
+                </div>
+                <div class="comp-divider"></div>
+                <div class="comp-after">
+                    <div class="comp-label">With Claude Code</div>
+                    <h3>A clickable prototype you built yourself</h3>
+                    <p>"Create an interactive walkthrough of our onboarding flow with these three screens." Hand real code to eng, not a Figma link.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ROI Calculator -->
+    <section class="calc-section">
+        <div class="section">
+            <div class="section-label fade-up">See Your Numbers</div>
+            <h2 class="fade-up">How much time would you get back?</h2>
+            <p class="fade-up" style="color: rgba(255,255,255,0.55); max-width: 620px; margin-bottom: 56px; font-size: 1.05rem; line-height: 1.7;">Adjust the sliders to match your typical week. The calculator shows how many hours Claude Code would save you.</p>
+            <div class="calc-layout fade-up">
+                <div class="calc-sliders">
+                    <div class="slider-group">
+                        <label>Competitor research &amp; battlecards <span id="val-compete">4 hrs</span></label>
+                        <input type="range" id="slider-compete" min="0" max="10" value="4" step="0.5">
+                        <div class="slider-desc">Tracking pricing, features, and positioning; updating battlecards</div>
+                    </div>
+                    <div class="slider-group">
+                        <label>Landing pages &amp; web content <span id="val-pages">3 hrs</span></label>
+                        <input type="range" id="slider-pages" min="0" max="10" value="3" step="0.5">
+                        <div class="slider-desc">Creating, updating, or waiting on launch pages and microsites</div>
+                    </div>
+                    <div class="slider-group">
+                        <label>Data formatting &amp; reporting <span id="val-data">3 hrs</span></label>
+                        <input type="range" id="slider-data" min="0" max="10" value="3" step="0.5">
+                        <div class="slider-desc">Pipeline data, QBR charts, board deck slides</div>
+                    </div>
+                    <div class="slider-group">
+                        <label>Prototypes &amp; demos <span id="val-proto">2 hrs</span></label>
+                        <input type="range" id="slider-proto" min="0" max="10" value="2" step="0.5">
+                        <div class="slider-desc">Product demos, interactive walkthroughs, clickable mockups</div>
+                    </div>
+                    <div class="slider-group">
+                        <label>Writing PRDs &amp; briefs <span id="val-prds">3 hrs</span></label>
+                        <input type="range" id="slider-prds" min="0" max="8" value="3" step="0.5">
+                        <div class="slider-desc">Requirements docs, launch briefs, messaging frameworks</div>
+                    </div>
+                </div>
+                <div class="calc-results">
+                    <div class="result-primary">
+                        <div class="number" id="result-weekly">9.1</div>
+                        <div class="label" id="result-weekly-label">hours saved every week</div>
+                    </div>
+                    <div class="result-secondary" id="result-secondary">
+                        <div>
+                            <div class="stat-num" id="result-monthly">39</div>
+                            <div class="stat-label">hours / month</div>
+                        </div>
+                        <div>
+                            <div class="stat-num" id="result-yearly">455</div>
+                            <div class="stat-label">hours / year</div>
+                        </div>
+                        <div>
+                            <div class="stat-num" id="result-weeks">11.4</div>
+                            <div class="stat-label">work weeks / year</div>
+                        </div>
+                    </div>
+                    <div class="result-breakdown" id="result-breakdown">
+                        <div class="breakdown-row">
+                            <div class="breakdown-label">Comp. research</div>
+                            <div class="breakdown-bar-track"><div class="breakdown-bar-fill" id="bar-compete" style="width:0%"></div></div>
+                            <div class="breakdown-value" id="bval-compete">0h</div>
+                        </div>
+                        <div class="breakdown-row">
+                            <div class="breakdown-label">Landing pages</div>
+                            <div class="breakdown-bar-track"><div class="breakdown-bar-fill" id="bar-pages" style="width:0%"></div></div>
+                            <div class="breakdown-value" id="bval-pages">0h</div>
+                        </div>
+                        <div class="breakdown-row">
+                            <div class="breakdown-label">Data &amp; reporting</div>
+                            <div class="breakdown-bar-track"><div class="breakdown-bar-fill" id="bar-data" style="width:0%"></div></div>
+                            <div class="breakdown-value" id="bval-data">0h</div>
+                        </div>
+                        <div class="breakdown-row">
+                            <div class="breakdown-label">Prototypes</div>
+                            <div class="breakdown-bar-track"><div class="breakdown-bar-fill" id="bar-proto" style="width:0%"></div></div>
+                            <div class="breakdown-value" id="bval-proto">0h</div>
+                        </div>
+                        <div class="breakdown-row">
+                            <div class="breakdown-label">PRDs &amp; briefs</div>
+                            <div class="breakdown-bar-track"><div class="breakdown-bar-fill" id="bar-prds" style="width:0%"></div></div>
+                            <div class="breakdown-value" id="bval-prds">0h</div>
+                        </div>
+                    </div>
+                    <div class="calc-cta-message" id="calc-cta-message"></div>
+                    <a href="https://docs.anthropic.com/en/docs/claude-code/overview" class="calc-cta-btn">Try Claude Code free</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- "But I'm not a developer" -->
+    <section class="section objection-section">
+        <div class="section-label fade-up">Yes, This Is for You</div>
+        <h2 class="fade-up">"But I'm not a developer."</h2>
+        <p class="fade-up">Good. Claude Code was designed for exactly that. If you can prompt ChatGPT, you already have the only skill you need.</p>
+        <div class="objection-grid">
+            <div class="objection-card fade-up">
+                <div class="objection-card-accent"></div>
+                <h3>You already know how to prompt</h3>
+                <p>You use ChatGPT every day for drafts, research, and brainstorming. Claude Code works the same way &mdash; you describe what you want in plain English. The only difference is the output is a working webpage instead of a text block.</p>
+            </div>
+            <div class="objection-card fade-up" style="transition-delay: 0.08s;">
+                <div class="objection-card-accent"></div>
+                <h3>You can't break anything</h3>
+                <p>Claude Code runs on your local machine. It doesn't touch production. Start with a side project &mdash; a microsite, a one-pager, a data script. Zero risk, zero tickets, zero dependencies on other teams.</p>
+            </div>
+            <div class="objection-card fade-up" style="transition-delay: 0.16s;">
+                <div class="objection-card-accent"></div>
+                <h3>The output is production-quality</h3>
+                <p>This isn't a toy. Claude Code generates clean, professional code that your engineering team would actually ship. You're not building a hack &mdash; you're building the real thing.</p>
+            </div>
+            <div class="objection-card fade-up" style="transition-delay: 0.24s;">
+                <div class="objection-card-accent"></div>
+                <h3>Your peers are already doing this</h3>
+                <p>PMMs at other companies are shipping competitive comparison pages, building interactive product demos, and automating their battlecard workflows &mdash; without writing a line of code themselves.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+        <h2 class="fade-up">Try it on one project this week</h2>
+        <p class="fade-up">Pick the landing page you've been waiting on, the battlecard that needs refreshing, or the demo you wish you had. See how fast you can ship it.</p>
+        <div class="cta-steps fade-up">
+            <div class="cta-step">
+                <div class="cta-step-num">1</div>
+                <p>Install in one command</p>
+            </div>
+            <div class="cta-step-connector"></div>
+            <div class="cta-step">
+                <div class="cta-step-num">2</div>
+                <p>Describe what you need</p>
+            </div>
+            <div class="cta-step-connector"></div>
+            <div class="cta-step">
+                <div class="cta-step-num">3</div>
+                <p>Ship it before standup</p>
+            </div>
+        </div>
+        <div class="cta-buttons fade-up">
+            <a href="https://docs.anthropic.com/en/docs/claude-code/overview" class="btn">Get started</a>
+            <a href="https://github.com/anthropics/claude-code" class="btn btn-secondary">View on GitHub</a>
+        </div>
+    </section>
+
+    <footer>&copy; 2026 Anthropic. Claude Code.</footer>
+
+    <!-- Calculator logic (preserved exactly) -->
+    <script>
+    (function () {
+        var categories = [
+            { slider: 'slider-compete', val: 'val-compete', bar: 'bar-compete', bval: 'bval-compete', reduction: 0.60 },
+            { slider: 'slider-pages',   val: 'val-pages',   bar: 'bar-pages',   bval: 'bval-pages',   reduction: 0.75 },
+            { slider: 'slider-data',    val: 'val-data',    bar: 'bar-data',    bval: 'bval-data',    reduction: 0.50 },
+            { slider: 'slider-proto',   val: 'val-proto',   bar: 'bar-proto',   bval: 'bval-proto',   reduction: 0.70 },
+            { slider: 'slider-prds',    val: 'val-prds',    bar: 'bar-prds',    bval: 'bval-prds',    reduction: 0.40 }
+        ];
+
+        var maxBarHours = 10 * 0.75; // max possible single-category savings
+
+        function fmt(n) { return n % 1 === 0 ? n.toString() : n.toFixed(1); }
+
+        function update() {
+            var totalWeekly = 0;
+            var savings = [];
+
+            for (var i = 0; i < categories.length; i++) {
+                var c = categories[i];
+                var hours = parseFloat(document.getElementById(c.slider).value);
+                var saved = hours * c.reduction;
+
+                document.getElementById(c.val).textContent = fmt(hours) + ' hrs';
+                document.getElementById(c.bar).style.width = (saved / maxBarHours * 100) + '%';
+                document.getElementById(c.bval).textContent = fmt(saved) + 'h';
+
+                totalWeekly += saved;
+                savings.push(saved);
+            }
+
+            var weeklyEl = document.getElementById('result-weekly');
+            var weeklyLabelEl = document.getElementById('result-weekly-label');
+            var secondaryEl = document.getElementById('result-secondary');
+            var msgEl = document.getElementById('calc-cta-message');
+
+            if (totalWeekly === 0) {
+                weeklyEl.textContent = '';
+                weeklyLabelEl.innerHTML = '<span class="empty-state">Adjust the sliders to see your results</span>';
+                secondaryEl.style.opacity = '0';
+                msgEl.textContent = '';
+                return;
+            }
+
+            secondaryEl.style.opacity = '1';
+            weeklyEl.textContent = fmt(totalWeekly);
+            weeklyLabelEl.textContent = 'hours saved every week';
+
+            var monthly = totalWeekly * 4.3;
+            var yearly = totalWeekly * 50;
+            var workWeeks = yearly / 40;
+
+            document.getElementById('result-monthly').textContent = Math.round(monthly);
+            document.getElementById('result-yearly').textContent = Math.round(yearly);
+            document.getElementById('result-weeks').textContent = fmt(workWeeks);
+
+            if (totalWeekly < 3) {
+                msgEl.textContent = 'Even a few hours back means one more launch page or battlecard per week.';
+            } else if (totalWeekly <= 6) {
+                msgEl.textContent = "That\u2019s almost a full day. Imagine what you\u2019d ship with that time back.";
+            } else {
+                msgEl.textContent = "That\u2019s like adding another PMM to your team \u2014 without the headcount.";
+            }
+        }
+
+        for (var i = 0; i < categories.length; i++) {
+            document.getElementById(categories[i].slider).addEventListener('input', update);
+        }
+
+        update();
+    })();
+    </script>
+
+    <!-- Scroll animations + result pulse -->
+    <script>
+    (function () {
+        // Scroll-triggered fade-up entrances
+        var observer = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+        document.querySelectorAll('.fade-up').forEach(function (el) {
+            observer.observe(el);
+        });
+
+        // MutationObserver for result number pulse
+        var resultEl = document.getElementById('result-weekly');
+        if (resultEl) {
+            var mutationObs = new MutationObserver(function () {
+                resultEl.classList.remove('pulse');
+                // Force reflow to restart animation
+                void resultEl.offsetWidth;
+                resultEl.classList.add('pulse');
+            });
+            mutationObs.observe(resultEl, { childList: true, characterData: true, subtree: true });
+        }
+    })();
+    </script>
+
+</body>
+</html>
